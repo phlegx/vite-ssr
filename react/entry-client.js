@@ -1,0 +1,54 @@
+import React from 'react';
+import { createRoot, hydrateRoot } from 'react-dom/client';
+import { HelmetProvider } from 'react-helmet-async';
+import { BrowserRouter, useNavigate, } from 'react-router';
+import createClientContext from '../core/entry-client.js';
+import { withoutSuffix } from '../utils/route.js';
+import { createRouter } from './utils.js';
+import { provideContext } from './components.js';
+export { ClientOnly, useContext } from './components.js';
+export const viteSSR = async function (App, { routes, base, suspenseFallback, PropsProvider, pageProps, debug = {}, styleCollector, ...options }, hook) {
+    const url = new URL(window.location.href);
+    const routeBase = base && withoutSuffix(base({ url }), '/');
+    const ctx = await createClientContext({
+        ...options,
+        url,
+        spaRedirect: (location) => {
+            const navigate = useNavigate();
+            React.useEffect(() => {
+                (async () => {
+                    await navigate(location);
+                })();
+            }, [navigate]);
+        },
+    });
+    const context = ctx;
+    context.router = createRouter({
+        routes,
+        base,
+        initialState: context.initialState,
+        pagePropsOptions: pageProps,
+        PropsProvider,
+    });
+    if (hook) {
+        await hook(context);
+    }
+    let app = React.createElement(HelmetProvider, {}, React.createElement(BrowserRouter, { basename: routeBase }, React.createElement(React.Suspense, { fallback: suspenseFallback || '' }, provideContext(React.createElement(App, context), context))));
+    const styles = styleCollector && (await styleCollector(context));
+    if (styles && styles.provide) {
+        app = styles.provide(app);
+    }
+    if (debug.mount !== false) {
+        const el = document.getElementById(__CONTAINER_ID__);
+        styles && styles.cleanup && styles.cleanup();
+        // @ts-ignore
+        if (__VITE_SSR_DEV__) {
+            const root = createRoot(el);
+            root.render(app);
+        }
+        else {
+            hydrateRoot(el, app);
+        }
+    }
+};
+export default viteSSR;
